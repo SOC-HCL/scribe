@@ -5,40 +5,23 @@ api:
 entryPoints:
   web:
     address: "0.0.0.0:80"  # Listen on all interfaces
-    http:
-      redirections:
-        entryPoint:
-          to: websecure
-          scheme: https
   websecure:
     address: "0.0.0.0:443"  # Listen on all interfaces
     http:
-      tls:
-        certResolver: myresolver
+      tls: {}
+
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /data/certs/scribe.crt
+        keyFile: /data/certs/scribe.key
 
 providers:
   docker:
     endpoint: "unix:///var/run/docker.sock"
     exposedByDefault: false
     network: scribe_default
-  file:
-    filename: /etc/traefik/dynamic.yml
-
-certificatesResolvers:
-  myresolver:
-    # Self-signed certificate for hospital LAN deployment
-    # Suitable for environments without internet access
-    # Traefik v3 uses self-signed TLS by default when no ACME is configured
-    tls:
-      minVersion: VersionTLS12
-
-tls:
-  stores:
-    default:
-      # Self-signed certificate will be generated automatically on first run
-      defaultCertificate:
-        certFile: /data/certs/scribe.crt
-        keyFile: /data/certs/scribe.key
 
 log:
   level: INFO

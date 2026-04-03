@@ -1,0 +1,40 @@
+# Environment configuration
+.env
+.env.local
+.env.*.local
+
+# Generated certificates (keep these local, not in git)
+traefik/certs/
+!traefik/certs/.gitkeep
+
+# Docker volumes
+scribe_data/
+traefik_data/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+*.log
+
+# Uploads
+scribe/uploads/*
+!scribe/uploads/.gitkeep

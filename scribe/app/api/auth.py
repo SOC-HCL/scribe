@@ -12,7 +12,20 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from jose import jwt, JWTError
+import bcrypt
 from passlib.context import CryptContext
+
+# Monkeypatch bcrypt to truncate automatically, as passlib (unmaintained) 
+# triggers ValueErrors with bcrypt 4.0+ during its internal checks (detect_wrap_bug).
+_orig_hashpw = bcrypt.hashpw
+def _patched_hashpw(password, salt):
+    if isinstance(password, str):
+        password = password.encode("utf-8")
+    # Bcrypt has a 72-byte limit for the secret.
+    if len(password) > 72:
+        password = password[:72]
+    return _orig_hashpw(password, salt)
+bcrypt.hashpw = _patched_hashpw
 
 from app.database import get_db
 from app.models import User, Notification
@@ -21,7 +34,7 @@ router   = APIRouter()
 security = HTTPBearer(auto_error=False)
 
 # Secure password hashing with bcrypt
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__truncate_error=False)
 
 # Secret key - MUST be set via environment variable in production
 SECRET_KEY = os.getenv("SCRIBE_SECRET", None)
@@ -38,10 +51,16 @@ ADMIN_PASS = os.getenv("ADMIN_PASSWORD", "Scribe2026!")
 # ── Helpers ──────────────────────────────────────────────
 
 def _hash(pw: str) -> str:
-    return pwd_context.hash(pw)
+    # Bcrypt has a 72-byte limit. Newer bcrypt library versions raise 
+    # ValueError instead of truncating. We truncate manually to ensure compatibility.
+    return pwd_context.hash(pw[:72])
 
 def _verify(plain_pw: str, hashed_pw: str) -> bool:
-    return pwd_context.verify(plain_pw, hashed_pw)
+    if not plain_pw or not hashed_pw:
+        return False
+    # We truncate the plain password to 72 chars to match the hashing logic
+    # and avoid ValueErrors from the underlying bcrypt library.
+    return pwd_context.verify(plain_pw[:72], hashed_pw)
 
 def _make_token(user_id: int, username: str, role: str) -> str:
     exp = datetime.now(timezone.utc) + timedelta(hours=TOKEN_TTL)
@@ -111,8 +130,8 @@ def ensure_admin(db: Session):
         db.add(admin)
         db.commit()
     else:
-        # Resynchroniser le hash si le mot de passe a changé dans auth.py
-        if existing.hashed_password != _hash(ADMIN_PASS):
+        # Resynchroniser le hash si le mot de passe a changé (vérification sécurisée)
+        if not _verify(ADMIN_PASS, existing.hashed_password):
             existing.hashed_password = _hash(ADMIN_PASS)
             db.commit()
 

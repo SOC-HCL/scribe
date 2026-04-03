@@ -12,7 +12,20 @@ import os
 import xml.etree.ElementTree as ET
 import json
 import datetime
+import bcrypt
 from passlib.context import CryptContext
+
+# Monkeypatch bcrypt to truncate automatically, as passlib (unmaintained) 
+# triggers ValueErrors with bcrypt 4.0+ during its internal checks (detect_wrap_bug).
+_orig_hashpw = bcrypt.hashpw
+def _patched_hashpw(password, salt):
+    if isinstance(password, str):
+        password = password.encode("utf-8")
+    # Bcrypt has a 72-byte limit for the secret.
+    if len(password) > 72:
+        password = password[:72]
+    return _orig_hashpw(password, salt)
+bcrypt.hashpw = _patched_hashpw
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
@@ -20,10 +33,11 @@ sys.path.insert(0, BASE_DIR)
 CONFIG_FILE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(BASE_DIR, "config.xml")
 
 # Use bcrypt for password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__truncate_error=False)
 
 def _hash(pw: str) -> str:
-    return pwd_context.hash(pw)
+    # Truncate to 72 characters to avoid ValueError with bcrypt 4.0+
+    return pwd_context.hash(pw[:72])
 
 def _txt(el, tag, default=""):
     node = el.find(tag)
@@ -255,18 +269,25 @@ def generate_config_js(root, site_names):
 
     out_dir = os.path.join(BASE_DIR, "app", "static")
     os.makedirs(out_dir, exist_ok=True)
-    # En mode Docker, config.js est persisté dans /data/ et lié symboliquement
+    
+    # We always write to the static folder so the web server can serve it
+    out_path = os.path.join(out_dir, "config.js")
+    
+    # We also persist in /data/ for backup/persistence purposes if directory exists
     data_dir = os.environ.get("SCRIBE_DATA_DIR", "")
-    if data_dir and os.path.isdir(data_dir):
-        out_path = os.path.join(data_dir, "config.js")
-    else:
-        out_path = os.path.join(out_dir, "config.js")
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write("// Généré automatiquement par setup.py — ne pas éditer manuellement\n")
-        f.write(f"// Établissement : {nom_etab} | Généré le : {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}\n")
-        f.write("const SCRIBE_CONFIG = ")
-        f.write(json.dumps(config, ensure_ascii=False, indent=2))
-        f.write(";\n")
+    persist_path = os.path.join(data_dir, "config.js") if data_dir and os.path.isdir(data_dir) else None
+
+    def write_cfg(path):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("// Généré automatiquement par setup.py — ne pas éditer manuellement\n")
+            f.write(f"// Établissement : {nom_etab} | Généré le : {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}\n")
+            f.write("const SCRIBE_CONFIG = ")
+            f.write(json.dumps(config, ensure_ascii=False, indent=2))
+            f.write(";\n")
+
+    write_cfg(out_path)
+    if persist_path:
+        write_cfg(persist_path)
 
     ok(f"config.js généré : {len(dirs)} directeur(s), {len(ann_normal)} contacts nominaux, "
        f"{len(ann_secours)} contacts secours")

@@ -1,20 +1,11 @@
 http:
   routers:
-    scribe-router-secure:
-      rule: "HostRegexp(`.*`)"
-      entryPoints:
-        - websecure
-      service: scribe-service
-      tls:
-        certResolver: myresolver
-      priority: 10
-    
-    scribe-router-http:
+    scribe-router:
       rule: "HostRegexp(`.*`)"
       entryPoints:
         - web
       service: scribe-service
-      priority: 5
+      priority: 10
 
   services:
     scribe-service:
